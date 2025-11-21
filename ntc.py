@@ -16,6 +16,13 @@ import unicodedata
 import argparse
 import re
 import json
+from rich.console import Console
+from rich.table import Table
+from rich.panel import Panel
+from rich.text import Text
+from rich.style import Style
+from rich.theme import Theme
+from rich.markdown import Markdown
 
 load_dotenv()
 
@@ -27,28 +34,28 @@ DRAFTS_FILE = 'drafts.json'
 MESSAGE_CACHE_FILE = 'message_cache.pkl'
 
 def get_or_prompt_api_keys():
-    """Получить API ID и HASH из .env или попросить у пользователя"""
+    """Get API ID and HASH from .env or prompt user"""
     api_id = os.getenv('API_ID')
     api_hash = os.getenv('API_HASH')
 
     if api_id and api_hash:
         return api_id, api_hash
 
-    print("\n⚠ API_ID и API_HASH не найдены в .env\n")
-    print("Получи их на https://my.telegram.org\n")
+    print("\n⚠ API_ID and API_HASH not found in .env\n")
+    print("Get them at https://my.telegram.org\n")
 
     api_id = input("API_ID: ").strip()
     api_hash = input("API_HASH: ").strip()
 
     if not api_id or not api_hash:
-        print("\n✗ API_ID и API_HASH обязательны!")
+        print("\n✗ API_ID and API_HASH are required!")
         exit(1)
 
     with open('.env', 'a') as f:
         f.write(f"\nAPI_ID={api_id}\n")
         f.write(f"API_HASH={api_hash}\n")
 
-    print("\n✓ Сохранено в .env\n")
+    print("\n✓ Saved to .env\n")
     return api_id, api_hash
 
 API_ID, API_HASH = get_or_prompt_api_keys()
@@ -104,6 +111,8 @@ THEMES = {
 LANGUAGES = {
     'en': {'name': 'English', 'session': 'Session', 'logged_in': 'Logged in', 'chats': 'chats', 'history': 'history', 'no_chat': 'no chat', 'error': 'error', 'not_found': 'not found', 'no_media': 'no media', 'exit': 'exit', 'send_text': 'message', 'cant_write': 'cannot write'},
     'ru': {'name': 'Русский', 'session': 'Сессия', 'logged_in': 'Вошли', 'chats': 'чаты', 'history': 'история', 'no_chat': 'нет чата', 'error': 'ошибка', 'not_found': 'не найдено', 'no_media': 'нет медиа', 'exit': 'выход', 'send_text': 'сообщение', 'cant_write': 'не могу писать'},
+    'uk': {'name': 'Українська', 'session': 'Сесія', 'logged_in': 'Увійшли', 'chats': 'чати', 'history': 'історія', 'no_chat': 'немає чату', 'error': 'помилка', 'not_found': 'не знайдено', 'no_media': 'немає медіа', 'exit': 'вихід', 'send_text': 'повідомлення', 'cant_write': 'не можу писати'},
+    'kk': {'name': 'Қазақша', 'session': 'Сессия', 'logged_in': 'Кірді', 'chats': 'чаттар', 'history': 'тарих', 'no_chat': 'чат жоқ', 'error': 'қате', 'not_found': 'табылмады', 'no_media': 'медиа жоқ', 'exit': 'шығу', 'send_text': 'хабарлама', 'cant_write': 'жаза алмаймын'},
 }
 
 CMD_ALIASES = {
@@ -129,6 +138,7 @@ CMD_ALIASES = {
     'd': 'del',
     't': 'text',
     'th': 'theme',
+    'lang': 'language',
 }
 
 class TelegramCLI:
@@ -149,6 +159,7 @@ class TelegramCLI:
         self.drafts = self.load_drafts()
         self.folders = {}
         self.current_folder = None
+        self.console = Console()
         self.load_theme_from_config()
         self.load_message_cache()
 
@@ -220,7 +231,7 @@ class TelegramCLI:
                 with open(MESSAGE_CACHE_FILE, 'rb') as f:
                     cache_data = pickle.load(f)
                     self.message_cache = cache_data.get('messages', defaultdict(dict))
-                    print(f"{C.GREEN}✓{C.RESET} Message cache loaded")
+                    self.console.print(f"[green]✓[/green] Message cache loaded")
             except:
                 pass
 
@@ -324,20 +335,20 @@ class TelegramCLI:
         return f"{primary}[{label}{ext}]{C.RESET}"
 
     def parse_markdown(self, text):
-        """Convert Telegram/Markdown formatting to terminal ANSI codes"""
+        """Convert Telegram/Markdown formatting to Rich markup"""
         # Bold **text**
-        text = re.sub(r'\*\*(.+?)\*\*', f'{C.BOLD}\\1{C.RESET}', text)
+        text = re.sub(r'\*\*(.+?)\*\*', r'[bold]\1[/bold]', text)
         # Italic *text* or _text_
-        text = re.sub(r'(?<!\*)\*(?!\*)(.+?)(?<!\*)\*(?!\*)', f'{C.ITALIC}\\1{C.RESET}', text)
-        text = re.sub(r'(?<!_)_(?!_)(.+?)(?<!_)_(?!_)', f'{C.ITALIC}\\1{C.RESET}', text)
+        text = re.sub(r'(?<!\*)\*(?!\*)(.+?)(?<!\*)\*(?!\*)', r'[italic]\1[/italic]', text)
+        text = re.sub(r'(?<!_)_(?!_)(.+?)(?<!_)_(?!_)', r'[italic]\1[/italic]', text)
         # Code `text`
-        text = re.sub(r'`(.+?)`', f'{C.GRAY}{C.INVERSE}\\1{C.RESET}', text)
+        text = re.sub(r'`(.+?)`', r'[reverse]\1[/reverse]', text)
         # Strikethrough ~~text~~
-        text = re.sub(r'~~(.+?)~~', f'{C.STRIKETHROUGH}\\1{C.RESET}', text)
+        text = re.sub(r'~~(.+?)~~', r'[strike]\1[/strike]', text)
         # Underline __text__
-        text = re.sub(r'__(.+?)__', f'{C.UNDERLINE}\\1{C.RESET}', text)
+        text = re.sub(r'__(.+?)__', r'[underline]\1[/underline]', text)
         # Spoiler ||text||
-        text = re.sub(r'\|\|(.+?)\|\|', f'{C.GRAY}{C.HIDDEN}\\1{C.RESET}', text)
+        text = re.sub(r'\|\|(.+?)\|\|', r'[dim]\1[/dim]', text)
         return text
 
     def calculate_speed(self, text_length):
@@ -353,12 +364,12 @@ class TelegramCLI:
         session_file = f"{SESSION_NAME}.session"
         primary = self.get_theme_color('primary')
         if os.path.exists(session_file):
-            print(f"{primary}✓{C.RESET} {self.t('session')}")
+            self.console.print(f"[bold magenta]✓[/bold magenta] {self.t('session')}")
         else:
-            print(f"{primary}+{C.RESET} First login")
+            self.console.print(f"[bold magenta]+[/bold magenta] First login")
         await self.client.start()
         me = await self.client.get_me()
-        print(f"{primary}✓{C.RESET} {self.t('logged_in')}: {me.first_name}\n")
+        self.console.print(f"[bold magenta]✓[/bold magenta] {self.t('logged_in')}: {me.first_name}\n")
 
         # Load folders
         await self.load_folders()
@@ -429,47 +440,20 @@ class TelegramCLI:
         status = self.get_status(msg)
         media_label = self.format_media_label(msg) if msg.media else ""
 
-        primary = self.get_theme_color('primary')
-        secondary = self.get_theme_color('secondary')
-        dim = self.get_theme_color('dim')
-
-        sender_prefix = f"{primary}→{C.RESET}" if msg.out else f"{secondary}←{C.RESET}"
+        # Remove ANSI codes from status for Rich
+        status = re.sub(r'\x1b\[[0-9;]*m', '', status)
+        
+        sender_color = "bold magenta" if msg.out else "bold cyan"
+        sender_prefix = "→" if msg.out else "←"
 
         # Show edit indicator
-        edit_indicator = f"{C.GRAY}[edited]{C.RESET} " if hasattr(msg, 'edit_date') and msg.edit_date else ""
+        edit_indicator = "[dim][edited][/dim] " if hasattr(msg, 'edit_date') and msg.edit_date else ""
 
         if msg.text:
             text = self.parse_markdown(msg.text[:100])
-            line = f"{self.display_counter:2} {dim}{time_str}{C.RESET} {status} {sender_prefix} {sender} | {edit_indicator}"
-            sys.stdout.write(line)
-            sys.stdout.flush()
-            speed = self.calculate_speed(len(msg.text))
-
-            # Smart animation that skips ANSI codes
-            i = 0
-            while i < len(text):
-                if text[i:i+2] == '\033':
-                    # Find end of ANSI sequence
-                    end = text.find('m', i)
-                    if end != -1:
-                        sys.stdout.write(text[i:end+1])
-                        sys.stdout.flush()
-                        i = end + 1
-                        continue
-                sys.stdout.write(text[i])
-                sys.stdout.flush()
-                time.sleep(speed)
-                i += 1
-
-            if media_label:
-                sys.stdout.write(f" {media_label}\n")
-            else:
-                sys.stdout.write("\n")
-            sys.stdout.flush()
+            self.console.print(f" {self.display_counter:2} [dim]{time_str}[/dim] {status} [{sender_color}]{sender_prefix} {sender}[/{sender_color}] | {edit_indicator}{text} {media_label}")
         else:
-            line = f"{self.display_counter:2} {dim}{time_str}{C.RESET} {status} {sender_prefix} {sender} | {edit_indicator}{media_label}\n"
-            sys.stdout.write(line)
-            sys.stdout.flush()
+            self.console.print(f" {self.display_counter:2} [dim]{time_str}[/dim] {status} [{sender_color}]{sender_prefix} {sender}[/{sender_color}] | {edit_indicator}{media_label}")
 
     async def on_new_message(self, event):
         if not self.current_chat or event.chat_id != self.current_chat.id:
@@ -488,15 +472,17 @@ class TelegramCLI:
         # Show draft if exists
         draft = self.get_draft(self.current_chat.id)
         if draft:
-            sys.stdout.write(f"{C.DIM}[draft: {draft[:30]}...]{C.RESET} ")
+            self.console.print(f"[dim][draft: {draft[:30]}...][/dim] ", end="")
 
-        primary = self.get_theme_color('primary')
-        sys.stdout.write(f"{primary}>{C.RESET} ")
-        sys.stdout.flush()
+        self.console.print(f"[bold magenta]>[/bold magenta] ", end="")
 
     async def list_chats(self, limit=None, folder=None):
-        secondary = self.get_theme_color('secondary')
-        print(f"\n{secondary}chats{C.RESET}")
+        table = Table(show_header=True, header_style="bold magenta", box=None)
+        table.add_column("#", style="dim", width=4)
+        table.add_column(self.t('chats'), style="bold")
+        table.add_column("Type", width=3)
+        table.add_column("Unread", justify="right")
+
         self.dialogs = []
         async for d in self.client.iter_dialogs(limit=100):
             self.dialogs.append(d)
@@ -506,17 +492,21 @@ class TelegramCLI:
             name = d.name[:32]
             badge = self.get_type_badge(d.entity)
             unread = f"+{d.unread_count}" if d.unread_count > 0 else ""
-
+            
             # Check for draft
-            draft_indicator = f"{C.YELLOW}📝{C.RESET}" if self.get_draft(d.id) else ""
+            draft_indicator = "📝" if self.get_draft(d.id) else ""
+            
+            # Clean ANSI from badge for Rich
+            clean_badge = badge.replace(C.RESET, "").replace(self.get_theme_color('primary'), "").replace(self.get_theme_color('secondary'), "")
+            
+            table.add_row(
+                str(idx),
+                f"{name} {draft_indicator}",
+                clean_badge,
+                unread
+            )
 
-            name_width = self.get_display_width(name)
-            padding = max(0, 32 - name_width)
-            unread_str = unread.rjust(6)
-
-            dim = self.get_theme_color('dim')
-            print(f"{dim}│{C.RESET}  {idx:2}  {dim}│{C.RESET} {name}{' ' * padding} {badge} {draft_indicator} {dim}│{C.RESET} {unread_str} {dim}│{C.RESET}")
-
+        self.console.print(table)
         print()
 
     async def select_chat(self, idx):
@@ -524,8 +514,7 @@ class TelegramCLI:
             idx = int(idx) - 1
             if 0 <= idx < len(self.dialogs):
                 self.current_chat = self.dialogs[idx]
-                primary = self.get_theme_color('primary')
-                print(f"\n{primary}→{C.RESET} {self.current_chat.name}\n")
+                self.console.print(f"\n[bold magenta]→[/bold magenta] {self.current_chat.name}\n")
                 self.message_cache.clear()
                 self.message_list.clear()
                 self.media_list.clear()
@@ -536,7 +525,7 @@ class TelegramCLI:
                 # Show draft if exists
                 draft = self.get_draft(self.current_chat.id)
                 if draft:
-                    print(f"{C.YELLOW}📝 Draft: {draft}{C.RESET}\n")
+                    self.console.print(f"[yellow]📝 Draft: {draft}[/yellow]\n")
 
                 await self.show_messages(15)
                 return True
@@ -546,20 +535,26 @@ class TelegramCLI:
 
     async def show_messages(self, limit=15):
         if not self.current_chat:
-            secondary = self.get_theme_color('secondary')
-            print(f"{secondary}no chat{C.RESET}")
+            self.console.print(f"[yellow]{self.t('no_chat')}[/yellow]")
             return
 
         chat_name = getattr(self.current_chat, 'name', None) or getattr(self.current_chat, 'title', 'Unknown')
-        secondary = self.get_theme_color('secondary')
-        print(f"{secondary}history — {str(chat_name)[:40]}{C.RESET}")
+        self.console.print(Panel(f"[bold]{self.t('history')} — {str(chat_name)[:40]}[/bold]", style="blue"))
+        
         msgs = []
         try:
             async for m in self.client.iter_messages(self.current_chat, limit=limit):
                 msgs.append(m)
         except:
-            print(f"{secondary}error{C.RESET}")
+            self.console.print(f"[red]{self.t('error')}[/red]")
             return
+
+        table = Table(show_header=False, box=None, padding=(0, 1))
+        table.add_column("ID", style="dim", width=4)
+        table.add_column("Time", style="dim", width=6)
+        table.add_column("Status", width=4)
+        table.add_column("Sender", width=15)
+        table.add_column("Content")
 
         for idx, msg in enumerate(reversed(msgs), 1):
             try:
@@ -580,25 +575,30 @@ class TelegramCLI:
                 sender = "You" if msg.out else (getattr(msg.sender, 'first_name', '?')[:10] if msg.sender else "?")
                 time_str = msg.date.strftime("%H:%M") if msg.date else "--:--"
                 status = self.get_status(msg)
+                # Remove ANSI
+                status = re.sub(r'\x1b\[[0-9;]*m', '', status)
+                
                 media_label = self.format_media_label(msg) if msg.media else ""
+                # Remove ANSI from media label
+                media_label = re.sub(r'\x1b\[[0-9;]*m', '', media_label)
 
-                primary = self.get_theme_color('primary')
-                dim = self.get_theme_color('dim')
-
-                sender_prefix = f"{primary}→{C.RESET}" if msg.out else f"{secondary}←{C.RESET}"
+                sender_color = "magenta" if msg.out else "cyan"
+                sender_fmt = f"[{sender_color}]{sender}[/{sender_color}]"
                 self.display_counter = idx
 
-                edit_indicator = f"{C.GRAY}[edited]{C.RESET} " if hasattr(msg, 'edit_date') and msg.edit_date else ""
+                edit_indicator = "[dim][edited][/dim] " if hasattr(msg, 'edit_date') and msg.edit_date else ""
 
                 if msg.text:
                     text = self.parse_markdown(msg.text[:80])
-                    line = f"{idx:2} {dim}{time_str}{C.RESET} {status} {sender_prefix} {sender} | {edit_indicator}{text}"
-                    print(line + (f" {media_label}" if media_label else ""))
+                    content = f"{edit_indicator}{text} {media_label}"
                 else:
-                    line = f"{idx:2} {dim}{time_str}{C.RESET} {status} {sender_prefix} {sender} | {edit_indicator}{media_label}"
-                    print(line)
+                    content = f"{edit_indicator}{media_label}"
+                
+                table.add_row(str(idx), time_str, status, sender_fmt, content)
             except:
                 continue
+        
+        self.console.print(table)
         print()
 
         # Save cache after loading messages
@@ -606,12 +606,9 @@ class TelegramCLI:
 
     async def search_messages(self, query):
         if not self.current_chat:
-            secondary = self.get_theme_color('secondary')
-            print(f"{secondary}no chat{C.RESET}")
+            self.console.print(f"[yellow]{self.t('no_chat')}[/yellow]")
             return
-        secondary = self.get_theme_color('secondary')
-        dim = self.get_theme_color('dim')
-        print(f"\n{secondary}search: {query}{C.RESET}")
+        self.console.print(f"\n[bold magenta]search: {query}[/bold magenta]")
         found = 0
         try:
             async for msg in self.client.iter_messages(self.current_chat, search=query, limit=15):
@@ -620,110 +617,95 @@ class TelegramCLI:
                     sender = "You" if msg.out else (getattr(msg.sender, 'first_name', '?')[:10] if msg.sender else "?")
                     time_str = msg.date.strftime("%H:%M")
                     text = self.parse_markdown(msg.text[:70])
-                    print(f"  {found}. {dim}{time_str}{C.RESET} {sender} | {text}")
+                    self.console.print(f"  {found}. [dim]{time_str}[/dim] {sender} | {text}")
         except:
             pass
         if found == 0:
-            print(f"{secondary}no results{C.RESET}")
+            self.console.print(f"[dim]{self.t('not_found')}[/dim]")
         print()
 
     async def show_my_profile(self):
         try:
             me = await self.client.get_me()
-            primary = self.get_theme_color('primary')
-            print(f"\n{primary}profile{C.RESET}")
-            print(f"  id: {me.id}")
-            print(f"  name: {me.first_name} {me.last_name or ''}")
-            print(f"  user: @{me.username or 'none'}")
+            self.console.print(Panel(f"id: {me.id}\nname: {me.first_name} {me.last_name or ''}\nuser: @{me.username or 'none'}", title="Profile", border_style="magenta"))
             full = await self.client.get_entity(me.id)
             if hasattr(full, 'about'):
-                print(f"  bio: {full.about or 'none'}")
+                self.console.print(f"  bio: {full.about or 'none'}")
             print()
         except:
-            secondary = self.get_theme_color('secondary')
-            print(f"{secondary}error{C.RESET}")
+            self.console.print(f"[red]{self.t('error')}[/red]")
 
     async def change_username(self, username):
         try:
             self.animate_send()
             await self.client(UpdateUsernameRequest(username=username))
-            primary = self.get_theme_color('primary')
-            print(f"{primary}✓{C.RESET} username @{username}")
+            self.console.print(f"[green]✓[/green] username @{username}")
         except Exception as e:
-            secondary = self.get_theme_color('secondary')
-            print(f"{secondary}✗ {str(e)}{C.RESET}")
+            self.console.print(f"[red]✗ {str(e)}[/red]")
 
     async def change_name(self, first_name, last_name=""):
         try:
             self.animate_send()
             await self.client(UpdateProfileRequest(first_name=first_name, last_name=last_name))
-            primary = self.get_theme_color('primary')
-            print(f"{primary}✓{C.RESET} name changed")
+            self.console.print(f"[green]✓[/green] name changed")
         except Exception as e:
-            secondary = self.get_theme_color('secondary')
-            print(f"{secondary}✗ {str(e)}{C.RESET}")
+            self.console.print(f"[red]✗ {str(e)}[/red]")
 
     async def change_bio(self, bio):
         try:
             self.animate_send()
             await self.client(UpdateProfileRequest(about=bio))
-            primary = self.get_theme_color('primary')
-            print(f"{primary}✓{C.RESET} bio changed")
+            self.console.print(f"[green]✓[/green] bio changed")
         except Exception as e:
-            secondary = self.get_theme_color('secondary')
-            print(f"{secondary}✗ {str(e)}{C.RESET}")
+            self.console.print(f"[red]✗ {str(e)}[/red]")
 
     async def edit_message(self, num, new_text):
         """Edit a sent message"""
         if not self.current_chat:
-            secondary = self.get_theme_color('secondary')
-            print(f"{secondary}no chat{C.RESET}")
+            self.console.print(f"[yellow]{self.t('no_chat')}[/yellow]")
             return
         try:
             num = int(num) - 1
             if num < 0 or num >= len(self.message_list):
-                print(f"{C.GRAY}invalid message number{C.RESET}")
+                self.console.print(f"[dim]invalid message number[/dim]")
                 return
 
             msg_id = self.message_list[num]
             msg = await self.client.get_messages(self.current_chat, ids=msg_id)
 
             if not msg or not msg.out:
-                print(f"{C.GRAY}can only edit your own messages{C.RESET}")
+                self.console.print(f"[dim]can only edit your own messages[/dim]")
                 return
 
             self.animate_send()
             await self.client.edit_message(self.current_chat, msg_id, new_text)
-            primary = self.get_theme_color('primary')
-            print(f"{primary}✓{C.RESET} message edited")
+            self.console.print(f"[green]✓[/green] message edited")
 
             # Update cache
             msg = await self.client.get_messages(self.current_chat, ids=msg_id)
             self.message_cache[self.current_chat.id][msg_id] = msg
 
         except MessageNotModifiedError:
-            print(f"{C.GRAY}message not modified{C.RESET}")
+            self.console.print(f"[dim]message not modified[/dim]")
         except Exception as e:
-            secondary = self.get_theme_color('secondary')
-            print(f"{secondary}✗ {str(e)}{C.RESET}")
+            self.console.print(f"[red]✗ {str(e)}[/red]")
 
     async def delete_message(self, num):
         """Delete a message"""
         if not self.current_chat:
-            secondary = self.get_theme_color('secondary')
-            print(f"{secondary}no chat{C.RESET}")
+            self.console.print(f"[yellow]{self.t('no_chat')}[/yellow]")
             return
         try:
             num = int(num) - 1
             if num < 0 or num >= len(self.message_list):
-                print(f"{C.GRAY}invalid message number{C.RESET}")
+                self.console.print(f"[dim]invalid message number[/dim]")
                 return
 
             msg_id = self.message_list[num]
             msg = await self.client.get_messages(self.current_chat, ids=msg_id)
 
             if not msg:
-                print(f"{C.GRAY}message not found{C.RESET}")
+                self.console.print(f"[dim]message not found[/dim]")
                 return
 
             # Check if user can delete
@@ -733,13 +715,12 @@ class TelegramCLI:
                 if isinstance(chat, (types.Channel, types.Chat)):
                     perms = await self.client.get_permissions(self.current_chat, 'me')
                     if not perms.delete_messages:
-                        print(f"{C.GRAY}no permission to delete{C.RESET}")
+                        self.console.print(f"[dim]no permission to delete[/dim]")
                         return
 
             self.animate_send()
             await self.client.delete_messages(self.current_chat, [msg_id])
-            primary = self.get_theme_color('primary')
-            print(f"{primary}✓{C.RESET} message deleted")
+            self.console.print(f"[green]✓[/green] message deleted")
 
             # Update cache
             if msg_id in self.message_cache.get(self.current_chat.id, {}):
@@ -748,26 +729,24 @@ class TelegramCLI:
                 self.message_list.remove(msg_id)
 
         except Exception as e:
-            secondary = self.get_theme_color('secondary')
-            print(f"{secondary}✗ {str(e)}{C.RESET}")
+            self.console.print(f"[red]✗ {str(e)}[/red]")
 
     async def react_to_message(self, num, emoji):
         """Add reaction to a message"""
         if not self.current_chat:
-            secondary = self.get_theme_color('secondary')
-            print(f"{secondary}no chat{C.RESET}")
+            self.console.print(f"[yellow]{self.t('no_chat')}[/yellow]")
             return
         try:
             num = int(num) - 1
             if num < 0 or num >= len(self.message_list):
-                print(f"{C.GRAY}invalid message number{C.RESET}")
+                self.console.print(f"[dim]invalid message number[/dim]")
                 return
 
             msg_id = self.message_list[num]
             msg = await self.client.get_messages(self.current_chat, ids=msg_id)
 
             if not msg:
-                print(f"{C.GRAY}message not found{C.RESET}")
+                self.console.print(f"[dim]message not found[/dim]")
                 return
 
             self.animate_send()
@@ -781,23 +760,20 @@ class TelegramCLI:
                 reaction=reaction
             ))
 
-            primary = self.get_theme_color('primary')
-            print(f"{primary}✓{C.RESET} reacted with {emoji}")
+            self.console.print(f"[green]✓[/green] reacted with {emoji}")
 
         except Exception as e:
-            secondary = self.get_theme_color('secondary')
-            print(f"{secondary}✗ {str(e)}{C.RESET}")
+            self.console.print(f"[red]✗ {str(e)}[/red]")
 
     async def change_theme(self, theme_name):
         """Change color theme"""
         if theme_name not in THEMES:
-            print(f"{C.GRAY}available themes: {', '.join(THEMES.keys())}{C.RESET}")
+            self.console.print(f"[dim]available themes: {', '.join(THEMES.keys())}[/dim]")
             return
 
         self.theme = theme_name
         self.save_theme_to_config()
-        primary = self.get_theme_color('primary')
-        print(f"{primary}✓{C.RESET} theme changed to {theme_name}")
+        self.console.print(f"[green]✓[/green] theme changed to {theme_name}")
 
     async def send_to_user(self, username, text):
         """Send message to user by username"""
@@ -813,12 +789,10 @@ class TelegramCLI:
             # Send message
             msg = await self.client.send_message(user, text)
 
-            primary = self.get_theme_color('primary')
-            print(f"{primary}✓{C.RESET} sent to @{username}")
+            self.console.print(f"[green]✓[/green] sent to @{username}")
 
         except Exception as e:
-            secondary = self.get_theme_color('secondary')
-            print(f"{secondary}✗ {str(e)}{C.RESET}")
+            self.console.print(f"[red]✗ {str(e)}[/red]")
 
     async def logout(self):
         try:
@@ -829,13 +803,11 @@ class TelegramCLI:
             self.save_drafts()
 
             await self.client(LogOutRequest())
-            primary = self.get_theme_color('primary')
-            print(f"{primary}✓{C.RESET} logged out")
+            self.console.print(f"[green]✓[/green] logged out")
             self.running = False
             return True
         except Exception as e:
-            secondary = self.get_theme_color('secondary')
-            print(f"{secondary}✗ {str(e)}{C.RESET}")
+            self.console.print(f"[red]✗ {str(e)}[/red]")
             return False
 
     async def pin_message(self, num):
@@ -843,42 +815,37 @@ class TelegramCLI:
             num = int(num) - 1
             if num < 0 or num >= len(self.message_list):
                 return
-            primary = self.get_theme_color('primary')
-            print(f"{primary}✓{C.RESET} pinned")
+            self.console.print(f"[green]✓[/green] pinned")
         except:
             pass
 
     async def forward_to_saved(self, num):
         if not self.current_chat:
-            secondary = self.get_theme_color('secondary')
-            print(f"{secondary}no chat{C.RESET}")
+            self.console.print(f"[yellow]{self.t('no_chat')}[/yellow]")
             return
         try:
             num = int(num) - 1
             if num < 0 or num >= len(self.message_list):
-                print(f"{C.GRAY}invalid{C.RESET}")
+                self.console.print(f"[dim]invalid[/dim]")
                 return
             msg_id = self.message_list[num]
             msg = await self.client.get_messages(self.current_chat, ids=msg_id)
             if not msg:
-                print(f"{C.GRAY}no msg{C.RESET}")
+                self.console.print(f"[dim]no msg[/dim]")
                 return
             me = await self.client.get_me()
             saved_msgs = await self.client.get_entity(me.id)
             self.animate_send()
             await self.client.forward_messages(saved_msgs, msg_id, from_peer=self.current_chat)
-            primary = self.get_theme_color('primary')
-            print(f"{primary}✓{C.RESET} forwarded")
+            self.console.print(f"[green]✓[/green] forwarded")
         except:
-            secondary = self.get_theme_color('secondary')
-            print(f"{secondary}error{C.RESET}")
+            self.console.print(f"[red]{self.t('error')}[/red]")
 
     async def go_to_saved_messages(self):
         try:
             me = await self.client.get_me()
             self.current_chat = await self.client.get_entity(me.id)
-            primary = self.get_theme_color('primary')
-            print(f"\n{primary}→{C.RESET} Saved Messages\n")
+            self.console.print(f"\n[bold magenta]→[/bold magenta] Saved Messages\n")
             self.message_cache.clear()
             self.message_list.clear()
             self.media_list.clear()
@@ -887,37 +854,32 @@ class TelegramCLI:
             self.message_read_status.clear()
             await self.show_messages(15)
         except:
-            secondary = self.get_theme_color('secondary')
-            print(f"{secondary}error{C.RESET}")
+            self.console.print(f"[red]{self.t('error')}[/red]")
 
     async def slot_machine(self):
         if not self.current_chat:
-            secondary = self.get_theme_color('secondary')
-            print(f"{secondary}no chat{C.RESET}")
+            self.console.print(f"[yellow]{self.t('no_chat')}[/yellow]")
             return
         self.animate_send()
         try:
             msg = await self.client.send_message(self.current_chat, '🎰')
         except (ChatRestrictedError, ChatWriteForbiddenError):
-            primary = self.get_theme_color('primary')
-            print(f"{primary}✗{C.RESET} cannot write")
+            self.console.print(f"[red]✗[/red] cannot write")
             return
         except:
-            secondary = self.get_theme_color('secondary')
-            print(f"{secondary}error{C.RESET}")
+            self.console.print(f"[red]{self.t('error')}[/red]")
             return
 
         await asyncio.sleep(0.5)
         emojis = ['🍎', '🍊', '🍋', '🍌', '🍉', '🍇', '🍓', '7️⃣', '💎']
         r1, r2, r3 = random.choice(emojis), random.choice(emojis), random.choice(emojis)
-        primary = self.get_theme_color('primary')
         if r1 == r2 == r3:
-            result = f"{primary}jackpot! {r1}{r2}{r3}{C.RESET}" if r1 == '7️⃣' else f"{C.WHITE}win {r1}{r2}{r3}{C.RESET}"
+            result = f"[bold magenta]jackpot! {r1}{r2}{r3}[/bold magenta]" if r1 == '7️⃣' else f"[white]win {r1}{r2}{r3}[/white]"
         elif r1 == r2 or r2 == r3:
-            result = f"{C.GRAY}small win {r1}{r2}{r3}{C.RESET}"
+            result = f"[dim]small win {r1}{r2}{r3}[/dim]"
         else:
-            result = f"{C.GRAY}lose {r1}{r2}{r3}{C.RESET}"
-        print(result)
+            result = f"[dim]lose {r1}{r2}{r3}[/dim]"
+        self.console.print(result)
         self.message_cache[self.current_chat.id][msg.id] = msg
         if msg.id not in self.message_list:
             self.message_list.append(msg.id)
@@ -927,30 +889,27 @@ class TelegramCLI:
             num = int(num)
             item = next((i for i in self.media_list if i['img_num'] == num), None)
             if not item:
-                print(f"{C.GRAY}not found{C.RESET}")
+                self.console.print(f"[dim]not found[/dim]")
                 return
             msg = await self.client.get_messages(self.current_chat, ids=item['msg_id'])
             if not msg or not msg.media:
-                print(f"{C.GRAY}no media{C.RESET}")
+                self.console.print(f"[dim]no media[/dim]")
                 return
             media_info = self.get_media_type(msg)
             folder = os.path.join(MEDIA_DIR, media_info[0]) if media_info else MEDIA_DIR
             if not os.path.exists(folder):
                 os.makedirs(folder)
             file_path = await msg.download_media(file=folder)
-            primary = self.get_theme_color('primary')
-            print(f"{primary}✓{C.RESET} {os.path.abspath(file_path)}")
+            self.console.print(f"[green]✓[/green] {os.path.abspath(file_path)}")
         except:
-            secondary = self.get_theme_color('secondary')
-            print(f"{secondary}error{C.RESET}")
+            self.console.print(f"[red]{self.t('error')}[/red]")
 
     async def send_img(self, path):
         if not self.current_chat:
-            secondary = self.get_theme_color('secondary')
-            print(f"{secondary}no chat{C.RESET}")
+            self.console.print(f"[yellow]{self.t('no_chat')}[/yellow]")
             return
         if not os.path.exists(path):
-            print(f"{C.GRAY}not found{C.RESET}")
+            self.console.print(f"[dim]not found[/dim]")
             return
         self.animate_send()
         try:
@@ -960,16 +919,13 @@ class TelegramCLI:
                 self.message_list.append(msg.id)
             await self.show_msg_animated(msg)
         except (ChatRestrictedError, ChatWriteForbiddenError):
-            primary = self.get_theme_color('primary')
-            print(f"{primary}✗{C.RESET} cannot write")
+            self.console.print(f"[red]✗[/red] cannot write")
         except:
-            secondary = self.get_theme_color('secondary')
-            print(f"{secondary}error{C.RESET}")
+            self.console.print(f"[red]{self.t('error')}[/red]")
 
     async def send_msg(self, text):
         if not self.current_chat:
-            secondary = self.get_theme_color('secondary')
-            print(f"{secondary}no chat{C.RESET}")
+            self.console.print(f"[yellow]{self.t('no_chat')}[/yellow]")
             return
 
         # Clear draft after sending
@@ -983,16 +939,13 @@ class TelegramCLI:
                 self.message_list.append(msg.id)
             await self.show_msg_animated(msg)
         except (ChatRestrictedError, ChatWriteForbiddenError):
-            primary = self.get_theme_color('primary')
-            print(f"{primary}✗{C.RESET} cannot write")
+            self.console.print(f"[red]✗[/red] cannot write")
         except:
-            secondary = self.get_theme_color('secondary')
-            print(f"{secondary}error{C.RESET}")
+            self.console.print(f"[red]{self.t('error')}[/red]")
 
     async def reply(self, num, text):
         if not self.current_chat:
-            secondary = self.get_theme_color('secondary')
-            print(f"{secondary}no chat{C.RESET}")
+            self.console.print(f"[yellow]{self.t('no_chat')}[/yellow]")
             return
         try:
             num = int(num) - 1
@@ -1005,25 +958,22 @@ class TelegramCLI:
                 self.message_list.append(msg.id)
             await self.show_msg_animated(msg)
         except (ChatRestrictedError, ChatWriteForbiddenError):
-            primary = self.get_theme_color('primary')
-            print(f"{primary}✗{C.RESET} cannot write")
+            self.console.print(f"[red]✗[/red] cannot write")
         except:
             pass
 
     def show_help(self):
-        primary = self.get_theme_color('primary')
-        accent = self.get_theme_color('accent')
-        help_text = f"""
-{primary}ntc - n1ghtfallz Telegram Client{C.RESET}
+        help_text = """
+[bold magenta]ntc - n1ghtfallz Telegram Client[/bold magenta]
 
-{accent}chats{C.RESET}
+[bold white]chats[/bold white]
   ntc --list, ntc -l [n]           show chats
   ntc --select, ntc -s <n>         select chat
   ntc --msg, ntc -m [n]            show messages
   ntc --search, ntc -sr <text>     search
   ntc --text, ntc -t @user <text>  send to user
 
-{accent}messages{C.RESET}
+[bold white]messages[/bold white]
   ntc --send, ntc -sd <text>       send message
   ntc --reply, ntc -r <#> <text>   reply
   ntc --forward, ntc -f <#>        forward to saved
@@ -1031,39 +981,34 @@ class TelegramCLI:
   ntc --del, ntc -d <#>            delete message
   ntc --react <#> <emoji>          add reaction
 
-{accent}media{C.RESET}
+[bold white]media[/bold white]
   ntc --img, ntc -i <n>            download
   ntc --send-img, ntc -si <path>   send file
 
-{accent}profile{C.RESET}
+[bold white]profile[/bold white]
   ntc --mp                         my profile
   ntc --cu <user>                  change username
   ntc --name, ntc -n <name>        change name
   ntc --bio, ntc -b <text>         change bio
 
-{accent}settings{C.RESET}
+[bold white]settings[/bold white]
   ntc --theme, ntc -th <name>      change theme
                                    (dark, light, purple, matrix)
+  ntc --lang <code >               change language (en, ru, uk, kk)
 
-{accent}other{C.RESET}
+[bold white]other[/bold white]
   ntc --logout, ntc -lo            logout
   ntc --saved, ntc -sa             saved messages
   ntc --slots, ntc -sl             slot machine
   ntc --about, ntc -a              about
   ntc --help, ntc -h               help
   ntc --exit, ntc -e               exit
-
-{accent}features{C.RESET}
-  • reactions, reply
-  • fast loading
-  • idk
 """
-        print(help_text)
+        self.console.print(Panel(help_text, title="Help", border_style="magenta"))
 
     def show_about(self):
-        primary = self.get_theme_color('primary')
-        about_text = f"""
-{primary}ntc - n1ghtfallz Telegram Client{C.RESET}
+        about_text = """
+[bold magenta]ntc - n1ghtfallz Telegram Client[/bold magenta]
 
 owner: @n1ghtfallz
 version: 1.0
@@ -1071,9 +1016,9 @@ coded via claude sonnet 4
 language: python 3.14
 
 
-{primary}made for fun by n1ght{C.RESET}
+[italic]made for fun by n1ght[/italic]
 """
-        print(about_text)
+        self.console.print(Panel(about_text, title="About", border_style="blue"))
 
     def parse_command(self, cmd_input):
         parts = cmd_input.split()
@@ -1109,7 +1054,7 @@ language: python 3.14
     async def run(self):
         await self.start()
         secondary = self.get_theme_color('secondary')
-        print(f"{secondary}type 'ntc --help' for commands\n{C.RESET}")
+        self.console.print(f"[dim]type 'ntc --help' for commands[/dim]\n")
         self.update_task = asyncio.create_task(self.update_read_status_loop())
         loop = asyncio.get_event_loop()
 
@@ -1127,86 +1072,91 @@ language: python 3.14
             if not cmd:
                 continue
 
-            if cmd == 'list':
-                limit = int(args) if args and args.isdigit() else None
-                await self.list_chats(limit)
-            elif cmd == 'select':
-                if args:
-                    await self.select_chat(args)
-            elif cmd == 'msg':
-                limit = int(args) if args and args.isdigit() else 15
-                await self.show_messages(limit)
-            elif cmd == 'search':
-                if args:
-                    await self.search_messages(args)
-            elif cmd == 'send':
-                if args:
-                    await self.send_msg(args)
-            elif cmd == 'reply':
-                if args and len(args.split()) >= 2:
-                    parts = args.split(' ', 1)
-                    await self.reply(parts[0], parts[1])
-            elif cmd == 'forward':
-                if args:
-                    await self.forward_to_saved(args)
-            elif cmd == 'edit':
-                if args and len(args.split()) >= 2:
-                    parts = args.split(' ', 1)
-                    await self.edit_message(parts[0], parts[1])
-            elif cmd == 'del':
-                if args:
-                    await self.delete_message(args)
-            elif cmd == 'react':
-                if args and len(args.split()) >= 2:
-                    parts = args.split(' ', 1)
-                    await self.react_to_message(parts[0], parts[1])
-            elif cmd == 'img':
-                if args:
-                    await self.download_img(args)
-            elif cmd == 'send-img':
-                if args:
-                    await self.send_img(args)
-            elif cmd == 'mp':
-                await self.show_my_profile()
-            elif cmd == 'cu':
-                if args:
-                    await self.change_username(args)
-            elif cmd == 'name':
-                if args:
-                    name_parts = args.split(' ', 1)
-                    first = name_parts[0]
-                    last = name_parts[1] if len(name_parts) > 1 else ""
-                    await self.change_name(first, last)
-            elif cmd == 'bio':
-                if args:
-                    await self.change_bio(args)
-            elif cmd == 'theme':
-                if args:
-                    await self.change_theme(args)
-            elif cmd == 'text':
-                if args and len(args.split()) >= 2:
-                    parts = args.split(' ', 1)
-                    await self.send_to_user(parts[0], parts[1])
-            elif cmd == 'logout':
-                if await self.logout():
+            match cmd:
+                case 'list':
+                    limit = int(args) if args and args.isdigit() else None
+                    await self.list_chats(limit)
+                case 'select':
+                    if args:
+                        await self.select_chat(args)
+                case 'msg':
+                    limit = int(args) if args and args.isdigit() else 15
+                    await self.show_messages(limit)
+                case 'search':
+                    if args:
+                        await self.search_messages(args)
+                case 'send':
+                    if args:
+                        await self.send_msg(args)
+                case 'reply':
+                    if args and len(args.split()) >= 2:
+                        parts = args.split(' ', 1)
+                        await self.reply(parts[0], parts[1])
+                case 'forward':
+                    if args:
+                        await self.forward_to_saved(args)
+                case 'edit':
+                    if args and len(args.split()) >= 2:
+                        parts = args.split(' ', 1)
+                        await self.edit_message(parts[0], parts[1])
+                case 'del':
+                    if args:
+                        await self.delete_message(args)
+                case 'react':
+                    if args and len(args.split()) >= 2:
+                        parts = args.split(' ', 1)
+                        await self.react_to_message(parts[0], parts[1])
+                case 'img':
+                    if args:
+                        await self.download_img(args)
+                case 'send-img':
+                    if args:
+                        await self.send_img(args)
+                case 'mp':
+                    await self.show_my_profile()
+                case 'cu':
+                    if args:
+                        await self.change_username(args)
+                case 'name':
+                    if args:
+                        name_parts = args.split(' ', 1)
+                        first = name_parts[0]
+                        last = name_parts[1] if len(name_parts) > 1 else ""
+                        await self.change_name(first, last)
+                case 'bio':
+                    if args:
+                        await self.change_bio(args)
+                case 'theme':
+                    if args:
+                        await self.change_theme(args)
+                case 'language' | 'lang':
+                    if args and args in LANGUAGES:
+                        self.language = args
+                        self.console.print(f"Language changed to {LANGUAGES[args]['name']}")
+                case 'text':
+                    if args and len(args.split()) >= 2:
+                        parts = args.split(' ', 1)
+                        await self.send_to_user(parts[0], parts[1])
+                case 'logout':
+                    if await self.logout():
+                        break
+                case 'saved':
+                    await self.go_to_saved_messages()
+                case 'slots':
+                    await self.slot_machine()
+                case 'about':
+                    self.show_about()
+                case 'help':
+                    self.show_help()
+                case 'exit':
+                    self.console.print(f"[dim]exit[/dim]")
+                    self.running = False
                     break
-            elif cmd == 'saved':
-                await self.go_to_saved_messages()
-            elif cmd == 'slots':
-                await self.slot_machine()
-            elif cmd == 'about':
-                self.show_about()
-            elif cmd == 'help':
-                self.show_help()
-            elif cmd == 'exit':
-                print(f"{secondary}exit{C.RESET}")
-                self.running = False
-                break
-            elif cmd == 'send_direct':
-                if self.current_chat:
-                    await self.send_msg(args)
-            else:
-                print(f"{secondary}unknown: --{cmd}{C.RESET}")
+                case 'send_direct':
+                    if self.current_chat:
+                        await self.send_msg(args)
+                case _:
+                    self.console.print(f"[dim]unknown: --{cmd}[/dim]")
 
             await asyncio.sleep(0.01)
 
@@ -1245,6 +1195,7 @@ async def main():
     parser.add_argument('--logout', action='store_true')
     parser.add_argument('--saved', action='store_true')
     parser.add_argument('--slots', action='store_true')
+    parser.add_argument('--lang', type=str)
 
     args = parser.parse_args()
 
@@ -1303,6 +1254,10 @@ async def main():
                 await cli.go_to_saved_messages()
             elif args.slots:
                 await cli.slot_machine()
+            elif args.lang:
+                if args.lang in LANGUAGES:
+                    cli.language = args.lang
+                    print(f"Language changed to {LANGUAGES[args.lang]['name']}")
 
             await cli.client.disconnect()
         except KeyboardInterrupt:
